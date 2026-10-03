@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3D Viewer</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #111;
+      color: #e5e7eb;
+      height: 100vh;
+      overflow: hidden;
+      overflow-x: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ========== Top bar ========== */
+    .topbar {
+      height: 56px;
+      background: #1e1e1e;
+      border-bottom: 1px solid #333;
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      gap: 16px;
+      flex-shrink: 0;
+    }
+
+    .topbar h1 {
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: #60a5fa;
+      letter-spacing: 0.03em;
+      white-space: nowrap;
+    }
+
+    .upload-area {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex: 1;
+    }
+
+    .upload-area input[type="file"] {
+      display: none;
+    }
+
+    .btn {
+      padding: 7px 14px;
+      border-radius: 6px;
+      border: 1px solid #444;
+      background: #2a2a2a;
+      color: #e5e7eb;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .btn:hover {
+      background: #333;
+      border-color: #555;
+    }
+
+    .btn-primary {
+      background: #2563eb;
+      border-color: #2563eb;
+      color: #fff;
+    }
+
+    .btn-primary:hover {
+      background: #1d4ed8;
+      border-color: #1d4ed8;
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-sm {
+      padding: 3px 8px;
+      font-size: 11px;
+      border-radius: 4px;
+    }
+
+    .file-name {
+      font-size: 13px;
+      color: #94a3b8;
+      max-width: 240px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .status-text {
+      font-size: 12.5px;
+      color: #94a3b8;
+      margin-left: auto;
+      white-space: nowrap;
+    }
+
+    /* ========== Main layout ========== */
+    .main {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
+    /* Viewer */
+    .viewer-wrap {
+      flex: 1;
+      position: relative;
+      background: #2a2a2a;
+    }
+
+    #viewer {
+      width: 100%;
+      height: 100%;
+      cursor: default;
+    }
+
+    #viewer.hovering {
+      cursor: pointer;
+    }
+
+    .loading-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.55);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      z-index: 20;
+      color: #fff;
+      font-size: 14px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.25s;
+    }
+
+    .loading-overlay.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .spinner {
+      width: 36px;
+      height: 36px;
+      border: 3px solid #444;
+      border-top-color: #60a5fa;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Side panel */
+    .side-panel {
+      width: 300px;
+      background: #1a1a1a;
+      border-left: 1px solid #333;
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      padding: 12px 14px;
+      border-bottom: 1px solid #333;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #94a3b8;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .panel-header span.count {
+      background: #333;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 11px;
+      color: #e5e7eb;
+    }
+
+    .panel-actions {
+      display: flex;
+      gap: 6px;
+    }
+
+    .node-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 6px 0;
+    }
+
+    .node-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 8px 12px;
+      border-bottom: 1px solid #2a2a2a;
+      cursor: pointer;
+      transition: background 0.12s;
+    }
+
+    .node-row:hover {
+      background: #252525;
+    }
+
+    .node-row.active {
+      background: #1e3a5f;
+    }
+
+    .node-row.hidden-part .name {
+      color: #64748b;
+      text-decoration: line-through;
+    }
+
+    .node-row .vis-btn {
+      flex-shrink: 0;
+      width: 28px;
+      height: 28px;
+      border-radius: 5px;
+      border: 1px solid #444;
+      background: #2a2a2a;
+      color: #94a3b8;
+      font-size: 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .node-row .vis-btn:hover {
+      background: #333;
+      color: #e5e7eb;
+    }
+
+    .node-row .vis-btn.off {
+      color: #64748b;
+      background: #1a1a1a;
+    }
+
+    .node-row .info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .node-row .name {
+      font-size: 13px;
+      color: #e5e7eb;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 3px;
+    }
+
+    .node-row .meta {
+      font-size: 11.5px;
+      color: #94a3b8;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .node-row .meta span {
+      white-space: nowrap;
+    }
+
+    .empty-state {
+      padding: 40px 20px;
+      text-align: center;
+      color: #64748b;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    /* Selected info – improved panel */
+    .selected-info {
+      border-top: 1px solid #333;
+      padding: 14px;
+      background: #141414;
+      font-size: 13px;
+      max-height: 280px;
+      overflow-y: auto;
+    }
+
+    .selected-info h3 {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #64748b;
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .selected-info .empty {
+      color: #64748b;
+      font-size: 12.5px;
+    }
+
+    .detail-grid {
+      display: grid;
+      grid-template-columns: 90px 1fr;
+      gap: 6px 10px;
+      align-items: start;
+    }
+
+    .detail-grid .label {
+      color: #64748b;
+      font-size: 12px;
+    }
+
+    .detail-grid .val {
+      color: #e5e7eb;
+      word-break: break-word;
+      font-size: 12.5px;
+    }
+
+    .detail-grid .val.dims {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      color: #93c5fd;
+    }
+
+    .detail-actions {
+      margin-top: 12px;
+      display: flex;
+      gap: 8px;
+    }
+
+    /* Responsive */
+    @media (max-width: 900px) {
+      .side-panel {
+        width: 260px;
+      }
+    }
+
+    @media (max-width: 700px) {
+      .side-panel {
+        width: 220px;
+      }
+      .topbar h1 {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top bar -->
+  <div class="topbar">
+    <h1>3D Viewer</h1>
+
+    <div class="upload-area">
+      <input type="file" id="fileInput" accept=".glb,.gltf">
+      <button class="btn" id="btnChoose">Choose GLB</button>
+      <button class="btn btn-primary" id="btnRender" disabled>Render</button>
+      <span class="file-name" id="fileName">No file selected</span>
+    </div>
+
+    <span class="status-text" id="status">Ready</span>
+  </div>
+
+  <!-- Main content -->
+  <div class="main">
+    <!-- 3D Viewer -->
+    <div class="viewer-wrap">
+      <div id="viewer"></div>
+      <div class="loading-overlay" id="loading">
+        <div class="spinner"></div>
+        <span id="loadingText">Loading model…</span>
+      </div>
+    </div>
+
+    <!-- Side panel -->
+    <div class="side-panel">
+      <div class="panel-header">
+        <span>Mesh Nodes <span class="count" id="nodeCount">0</span></span>
+        <div class="panel-actions">
+          <button class="btn btn-sm" id="btnShowAll" title="Show all parts">Show All</button>
+          <button class="btn btn-sm" id="btnHideAll" title="Hide all parts">Hide All</button>
+        </div>
+      </div>
+      <div class="node-list" id="nodeList">
+        <div class="empty-state">
+          Upload a .glb / .gltf file<br>and click <strong>Render</strong>
+        </div>
+      </div>
+      <div class="selected-info" id="selectedInfo">
+        <h3>Selected Part</h3>
+        <div class="empty" id="selEmpty">Click a node in the list or on the model</div>
+        <div id="selDetails" style="display:none;">
+          <div class="detail-grid">
+            <div class="label">Name</div>
+            <div class="val" id="selName">—</div>
+
+            <div class="label">Material</div>
+            <div class="val" id="selMat">—</div>
+
+            <div class="label">Dimensions</div>
+            <div class="val dims" id="selDims">—</div>
+
+            <div class="label">Vertices</div>
+            <div class="val" id="selVerts">—</div>
+
+            <div class="label">Visibility</div>
+            <div class="val" id="selVis">—</div>
+          </div>
+          <div class="detail-actions">
+            <button class="btn btn-sm" id="btnToggleVis">Hide Part</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Three.js -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+    // ============================================================
+    // DOM
+    // ============================================================
+    const fileInput   = document.getElementById('fileInput');
+    const btnChoose   = document.getElementById('btnChoose');
+    const btnRender   = document.getElementById('btnRender');
+    const fileNameEl  = document.getElementById('fileName');
+    const statusEl    = document.getElementById('status');
+    const loadingEl   = document.getElementById('loading');
+    const loadingText = document.getElementById('loadingText');
+    const nodeListEl  = document.getElementById('nodeList');
+    const nodeCountEl = document.getElementById('nodeCount');
+    const selEmpty    = document.getElementById('selEmpty');
+    const selDetails  = document.getElementById('selDetails');
+    const selNameEl   = document.getElementById('selName');
+    const selMatEl    = document.getElementById('selMat');
+    const selDimsEl   = document.getElementById('selDims');
+    const selVertsEl  = document.getElementById('selVerts');
+    const selVisEl    = document.getElementById('selVis');
+    const btnToggleVis = document.getElementById('btnToggleVis');
+    const btnShowAll  = document.getElementById('btnShowAll');
+    const btnHideAll  = document.getElementById('btnHideAll');
+    const viewerEl    = document.getElementById('viewer');
+
+    let selectedFile = null;
+
+    // ============================================================
+    // Three.js setup
+    // ============================================================
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x2a2a2a);
+
+    const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 100000);
+    camera.position.set(2, 2, 4);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    viewerEl.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.06;
+    controls.autoRotate = false;
+
+    // Lights
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 2.0));
+
+    const keyLight = new THREE.DirectionalLight(0xffffff, 2.8);
+    keyLight.position.set(5, 8, 6);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.set(2048, 2048);
+    scene.add(keyLight);
+
+    const fillLight = new THREE.DirectionalLight(0xffffff, 1.2);
+    fillLight.position.set(-5, 3, -4);
+    scene.add(fillLight);
+
+    // Ground
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(2000, 2000),
+      new THREE.ShadowMaterial({ opacity: 0.15 })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = -0.001;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    // ============================================================
+    // State
+    // ============================================================
+    const loader = new GLTFLoader();
+    let currentRoot = null;
+    let entries = [];          // { mesh, name, fullLabel, materialNames, size, vertexCount, originalMaterials }
+    let selectedIndex = -1;
+
+    // Hover state
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    let hoveredEntry = null;
+    const HOVER_EMISSIVE = new THREE.Color(0x2266ff);
+    const SELECT_EMISSIVE = new THREE.Color(0x00aa55);
+
+    // ============================================================
+    // Helpers
+    // ============================================================
+    function setStatus(text) {
+      statusEl.textContent = text;
+    }
+
+    function showLoading(show, text = 'Loading model…') {
+      loadingText.textContent = text;
+      loadingEl.classList.toggle('visible', show);
+    }
+
+    function labelOf(mesh) {
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      const matNames = mats.filter(Boolean).map(m => m.name).filter(Boolean).join(', ');
+      return (mesh.name || '(unnamed)') + (matNames ? '  [' + matNames + ']' : '');
+    }
+
+    function getMeshSize(mesh) {
+      const box = new THREE.Box3().setFromObject(mesh);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      return { x: size.x, y: size.y, z: size.z };
+    }
+
+    function formatSize(size) {
+      const fmt = v => v.toFixed(3);
+      return 'W ' + fmt(size.x) + '  ×  H ' + fmt(size.y) + '  ×  D ' + fmt(size.z);
+    }
+
+    function getVertexCount(mesh) {
+      if (!mesh.geometry) return 0;
+      const pos = mesh.geometry.getAttribute('position');
+      return pos ? pos.count : 0;
+    }
+
+    function cloneMaterials(mesh) {
+      // Keep original materials so we can restore after hover/select
+      if (Array.isArray(mesh.material)) {
+        return mesh.material.map(m => m.clone());
+      }
+      return mesh.material ? mesh.material.clone() : null;
+    }
+
+    function setEmissive(mesh, color) {
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      mats.forEach(m => {
+        if (!m) return;
+        if (m.emissive) {
+          m.emissive.copy(color);
+          m.emissiveIntensity = color.r === 0 && color.g === 0 && color.b === 0 ? 0 : 0.55;
+        }
+      });
+    }
+
+    function clearEmissive(mesh) {
+      setEmissive(mesh, new THREE.Color(0x000000));
+    }
+
+    // ============================================================
+    // Collect meshes + build side panel
+    // ============================================================
+    function collectMeshes(root) {
+      entries = [];
+      root.traverse(obj => {
+        if (!obj.isMesh) return;
+
+        const size = getMeshSize(obj);
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+        const materialNames = mats.filter(Boolean).map(m => m.name || '(no name)').join(', ');
+
+        // Ensure materials support emissive (most standard materials do)
+        mats.forEach(m => {
+          if (m && m.emissive === undefined) {
+            // fallback – nothing heavy
+          }
+        });
+
+        entries.push({
+          mesh: obj,
+          name: obj.name || '(unnamed mesh)',
+          fullLabel: labelOf(obj),
+          materialNames,
+          size,
+          vertexCount: getVertexCount(obj),
+          visible: true
+        });
+      });
+
+      buildNodeList();
+    }
+
+    function buildNodeList() {
+      nodeListEl.innerHTML = '';
+      nodeCountEl.textContent = entries.length;
+
+      if (entries.length === 0) {
+        nodeListEl.innerHTML = '<div class="empty-state">No mesh nodes found</div>';
+        return;
+      }
+
+      entries.forEach((entry, idx) => {
+        const row = document.createElement('div');
+        row.className = 'node-row' + (entry.visible ? '' : ' hidden-part');
+        if (idx === selectedIndex) row.classList.add('active');
+        row.dataset.index = idx;
+
+        // Visibility toggle button
+        const visBtn = document.createElement('button');
+        visBtn.className = 'vis-btn' + (entry.visible ? '' : ' off');
+        visBtn.title = entry.visible ? 'Hide part' : 'Show part';
+        visBtn.textContent = entry.visible ? '👁' : '👁‍🗨';
+        visBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          toggleVisibility(idx);
+        });
+
+        const info = document.createElement('div');
+        info.className = 'info';
+
+        const nameDiv = document.createElement('div');
+        nameDiv.className = 'name';
+        nameDiv.title = entry.fullLabel;
+        nameDiv.textContent = entry.name;
+
+        const metaDiv = document.createElement('div');
+        metaDiv.className = 'meta';
+        metaDiv.innerHTML =
+          '<span>' + formatSize(entry.size) + '</span>' +
+          (entry.materialNames ? '<span>• ' + entry.materialNames + '</span>' : '');
+
+        info.appendChild(nameDiv);
+        info.appendChild(metaDiv);
+
+        row.appendChild(visBtn);
+        row.appendChild(info);
+
+        row.addEventListener('click', () => selectEntry(idx));
+        nodeListEl.appendChild(row);
+      });
+    }
+
+    function toggleVisibility(index) {
+      const entry = entries[index];
+      if (!entry) return;
+
+      entry.visible = !entry.visible;
+      entry.mesh.visible = entry.visible;
+
+      // Update row UI
+      buildNodeList();
+      if (selectedIndex === index) {
+        updateSelectedPanel();
+      }
+      setStatus(entry.visible ? 'Shown: ' + entry.name : 'Hidden: ' + entry.name);
+    }
+
+    function setAllVisibility(visible) {
+      entries.forEach(e => {
+        e.visible = visible;
+        e.mesh.visible = visible;
+      });
+      buildNodeList();
+      updateSelectedPanel();
+      setStatus(visible ? 'All parts shown' : 'All parts hidden');
+    }
+
+    btnShowAll.addEventListener('click', () => setAllVisibility(true));
+    btnHideAll.addEventListener('click', () => setAllVisibility(false));
+
+    // ============================================================
+    // Selection + better details panel
+    // ============================================================
+    function selectEntry(index) {
+      // Clear previous selection emissive
+      if (selectedIndex >= 0 && entries[selectedIndex]) {
+        clearEmissive(entries[selectedIndex].mesh);
+      }
+
+      selectedIndex = index;
+      const entry = entries[index];
+      if (!entry) {
+        selectedIndex = -1;
+        updateSelectedPanel();
+        return;
+      }
+
+      // Apply select highlight (green-ish)
+      setEmissive(entry.mesh, SELECT_EMISSIVE);
+
+      buildNodeList();
+      updateSelectedPanel();
+      setStatus('Selected: ' + entry.name);
+    }
+
+    function updateSelectedPanel() {
+      if (selectedIndex < 0 || !entries[selectedIndex]) {
+        selEmpty.style.display = 'block';
+        selDetails.style.display = 'none';
+        return;
+      }
+
+      const entry = entries[selectedIndex];
+      selEmpty.style.display = 'none';
+      selDetails.style.display = 'block';
+
+      selNameEl.textContent = entry.name;
+      selMatEl.textContent = entry.materialNames || '—';
+      selDimsEl.textContent = formatSize(entry.size);
+      selVertsEl.textContent = entry.vertexCount.toLocaleString();
+      selVisEl.textContent = entry.visible ? 'Visible' : 'Hidden';
+      btnToggleVis.textContent = entry.visible ? 'Hide Part' : 'Show Part';
+    }
+
+    btnToggleVis.addEventListener('click', () => {
+      if (selectedIndex >= 0) toggleVisibility(selectedIndex);
+    });
+
+    // ============================================================
+    // Hover highlight (raycasting)
+    // ============================================================
+    function onPointerMove(event) {
+      if (!currentRoot || entries.length === 0) return;
+
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, camera);
+
+      const meshes = entries.filter(e => e.visible).map(e => e.mesh);
+      const intersects = raycaster.intersectObjects(meshes, false);
+
+      // Restore previous hover
+      if (hoveredEntry && hoveredEntry !== entries[selectedIndex]) {
+        clearEmissive(hoveredEntry.mesh);
+      }
+      hoveredEntry = null;
+      viewerEl.classList.remove('hovering');
+
+      if (intersects.length > 0) {
+        const hitMesh = intersects[0].object;
+        const entry = entries.find(e => e.mesh === hitMesh);
+        if (entry) {
+          hoveredEntry = entry;
+          viewerEl.classList.add('hovering');
+
+          // Only apply blue hover if it is not the currently selected part
+          if (entry !== entries[selectedIndex]) {
+            setEmissive(entry.mesh, HOVER_EMISSIVE);
+          }
+        }
+      }
+    }
+
+    function onPointerLeave() {
+      if (hoveredEntry && hoveredEntry !== entries[selectedIndex]) {
+        clearEmissive(hoveredEntry.mesh);
+      }
+      hoveredEntry = null;
+      viewerEl.classList.remove('hovering');
+    }
+
+    function onPointerClick(event) {
+      if (!currentRoot || entries.length === 0) return;
+
+      // Ignore if user is dragging (OrbitControls)
+      // Simple check: small movement only
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, camera);
+      const meshes = entries.filter(e => e.visible).map(e => e.mesh);
+      const intersects = raycaster.intersectObjects(meshes, false);
+
+      if (intersects.length > 0) {
+        const hitMesh = intersects[0].object;
+        const idx = entries.findIndex(e => e.mesh === hitMesh);
+        if (idx >= 0) {
+          selectEntry(idx);
+        }
+      }
+    }
+
+    renderer.domElement.addEventListener('pointermove', onPointerMove);
+    renderer.domElement.addEventListener('pointerleave', onPointerLeave);
+    renderer.domElement.addEventListener('click', onPointerClick);
+
+    // ============================================================
+    // Fit camera
+    // ============================================================
+    function fitCameraToObject(root) {
+      const box = new THREE.Box3().setFromObject(root);
+      if (box.isEmpty()) return;
+
+      const center = new THREE.Vector3();
+      const size = new THREE.Vector3();
+      box.getCenter(center);
+      box.getSize(size);
+
+      const maxSize = Math.max(size.x, size.y, size.z) || 1;
+      const fitHeightDistance = maxSize / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
+      const fitWidthDistance = fitHeightDistance / camera.aspect;
+      const distance = 1.4 * Math.max(fitHeightDistance, fitWidthDistance);
+
+      const dir = new THREE.Vector3(1, 0.7, 1).normalize();
+      camera.position.copy(center).add(dir.multiplyScalar(distance));
+      camera.near = Math.max(0.001, distance / 1000);
+      camera.far = Math.max(1000, distance * 100);
+      camera.updateProjectionMatrix();
+
+      controls.target.copy(center);
+      controls.minDistance = Math.max(maxSize * 0.05, 0.01);
+      controls.maxDistance = Math.max(maxSize * 30, 10);
+      controls.update();
+    }
+
+    // ============================================================
+    // Load model from URL
+    // ============================================================
+    function loadModel(url) {
+      if (currentRoot) {
+        scene.remove(currentRoot);
+        currentRoot.traverse(obj => {
+          if (obj.isMesh) {
+            if (obj.geometry) obj.geometry.dispose();
+            if (Array.isArray(obj.material)) {
+              obj.material.forEach(m => m.dispose());
+            } else if (obj.material) {
+              obj.material.dispose();
+            }
+          }
+        });
+        currentRoot = null;
+      }
+      entries = [];
+      selectedIndex = -1;
+      hoveredEntry = null;
+      buildNodeList();
+      updateSelectedPanel();
+
+      showLoading(true, 'Loading model…');
+      setStatus('Loading…');
+
+      loader.load(
+        url,
+        (gltf) => {
+          currentRoot = gltf.scene;
+
+          currentRoot.traverse(obj => {
+            if (obj.isMesh) {
+              obj.castShadow = true;
+              obj.receiveShadow = true;
+
+              // Make sure materials have emissive for highlighting
+              const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+              mats.forEach(m => {
+                if (m && !m.emissive) {
+                  m.emissive = new THREE.Color(0x000000);
+                }
+              });
+            }
+          });
+
+          scene.add(currentRoot);
+          collectMeshes(currentRoot);
+          fitCameraToObject(currentRoot);
+
+          showLoading(false);
+          setStatus('Loaded • ' + entries.length + ' mesh node(s)');
+        },
+        (progress) => {
+          if (progress.total) {
+            const pct = (progress.loaded / progress.total * 100).toFixed(0);
+            loadingText.textContent = 'Loading model… ' + pct + '%';
+          }
+        },
+        (err) => {
+          console.error(err);
+          showLoading(false);
+          setStatus('Failed to load model');
+          alert('Failed to load the GLB file. Check the console for details.');
+        }
+      );
+    }
+
+    // ============================================================
+    // Upload + Render
+    // ============================================================
+    btnChoose.addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+
+      selectedFile = file;
+      fileNameEl.textContent = file.name;
+      btnRender.disabled = false;
+      setStatus('File selected – click Render');
+    });
+
+    btnRender.addEventListener('click', async () => {
+      if (!selectedFile) return;
+
+      btnRender.disabled = true;
+      setStatus('Uploading…');
+      showLoading(true, 'Uploading file…');
+
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+
+      try {
+        const res = await fetch('/upload', {
+          method: 'POST',
+          body: formData
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || data.error) {
+          throw new Error(data.error || 'Upload failed');
+        }
+
+        loadModel(data.url);
+      } catch (err) {
+        console.error(err);
+        showLoading(false);
+        setStatus('Upload failed');
+        alert(err.message || 'Upload failed');
+      } finally {
+        btnRender.disabled = false;
+      }
+    });
+
+    // ============================================================
+    // Resize + Render loop
+    // ============================================================
+    function resize() {
+      const w = viewerEl.clientWidth;
+      const h = viewerEl.clientHeight;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    }
+
+    window.addEventListener('resize', resize);
+    resize();
+
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>
