@@ -618,10 +618,6 @@
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-    // ============================================================
-    // Units: assume GLB is in meters → display in millimetres
-    // (Change UNIT_TO_MM to 1 if your files are already in mm)
-    // ============================================================
     const UNIT_TO_MM = 1000;
 
     function toMM(v) {
@@ -636,9 +632,8 @@
       return toMM(v).toFixed(digits);
     }
 
-    // ============================================================
     // DOM
-    // ============================================================
+
     const fileInput   = document.getElementById('fileInput');
     const btnChoose   = document.getElementById('btnChoose');
     const btnRender   = document.getElementById('btnRender');
@@ -673,9 +668,8 @@
 
     let selectedFile = null;
 
-    // ============================================================
     // Three.js
-    // ============================================================
+  
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x2a2a2a);
 
@@ -716,9 +710,8 @@
     ground.receiveShadow = true;
     scene.add(ground);
 
-    // ============================================================
     // State
-    // ============================================================
+
     const loader = new GLTFLoader();
     let currentRoot = null;
     let entries = [];
@@ -746,9 +739,8 @@
     const LINE_MAT  = new THREE.LineBasicMaterial({ color: 0xfbbf24, depthWrite: false });
     const AUTO_LINE_MAT = new THREE.LineBasicMaterial({ color: 0x34d399, depthWrite: false });
 
-    // ============================================================
     // Helpers
-    // ============================================================
+
     function setStatus(text) {
       statusEl.textContent = text;
     }
@@ -779,7 +771,7 @@
     }
 
     function formatSizeMM(size) {
-      return 'W ' + fmtMMRaw(size.x) + '  ×  H ' + fmtMMRaw(size.y) + '  ×  D ' + fmtMMRaw(size.z) + ' mm';
+      return 'X =' + fmtMMRaw(size.x) + '  ×  Y =' + fmtMMRaw(size.y) + '  ×  Z =' + fmtMMRaw(size.z) + ' mm';
     }
 
     function getVertexCount(mesh) {
@@ -816,9 +808,8 @@
       return raycaster.intersectObjects(getVisibleMeshes(), false);
     }
 
-    // ============================================================
     // Tools dropdown
-    // ============================================================
+
     btnTools.addEventListener('click', (e) => {
       e.stopPropagation();
       const open = toolsDropdown.classList.toggle('open');
@@ -861,9 +852,8 @@
       btnTools.classList.remove('open');
     });
 
-    // ============================================================
     // Smart zoom toward mouse
-    // ============================================================
+
     function onWheel(event) {
       event.preventDefault();
       updateMouse(event);
@@ -898,9 +888,8 @@
 
     renderer.domElement.addEventListener('wheel', onWheel, { passive: false });
 
-    // ============================================================
     // Collect meshes + side panel
-    // ============================================================
+
     function collectMeshes(root) {
       entries = [];
       root.traverse(obj => {
@@ -1002,9 +991,8 @@
     btnShowAll.addEventListener('click', () => setAllVisibility(true));
     btnHideAll.addEventListener('click', () => setAllVisibility(false));
 
-    // ============================================================
     // Selection
-    // ============================================================
+
     function selectEntry(index) {
       if (selectedIndex >= 0 && entries[selectedIndex]) {
         if (selectedIndex !== autoPartA && selectedIndex !== autoPartB) {
@@ -1047,9 +1035,8 @@
       if (selectedIndex >= 0) toggleVisibility(selectedIndex);
     });
 
-    // ============================================================
     // Hover
-    // ============================================================
+
     function onPointerMove(event) {
       if (!currentRoot || entries.length === 0) return;
       if (measureMode === 'manual') return;
@@ -1091,9 +1078,8 @@
       viewerEl.classList.remove('hovering');
     }
 
-    // ============================================================
     // Measure modes
-    // ============================================================
+
     function setMeasureMode(mode) {
       // clean previous mode highlights
       if (autoPartA >= 0 && entries[autoPartA]) clearEmissive(entries[autoPartA].mesh);
@@ -1323,9 +1309,8 @@
       }
     }
 
-    // ============================================================
     // Click handler
-    // ============================================================
+
     function onPointerClick(event) {
       if (!currentRoot || entries.length === 0) return;
 
@@ -1358,9 +1343,8 @@
     renderer.domElement.addEventListener('pointerleave', onPointerLeave);
     renderer.domElement.addEventListener('click', onPointerClick);
 
-    // ============================================================
     // Fit camera
-    // ============================================================
+
     function fitCameraToObject(root) {
       const box = new THREE.Box3().setFromObject(root);
       if (box.isEmpty()) return;
@@ -1383,9 +1367,8 @@
       controls.update();
     }
 
-    // ============================================================
     // Load model
-    // ============================================================
+
     function loadModel(url) {
       if (currentRoot) {
         scene.remove(currentRoot);
@@ -1444,9 +1427,8 @@
       );
     }
 
-    // ============================================================
     // Upload
-    // ============================================================
+
     btnChoose.addEventListener('click', () => fileInput.click());
 
     fileInput.addEventListener('change', () => {
@@ -1480,9 +1462,8 @@
       }
     });
 
-    // ============================================================
     // Resize + loop
-    // ============================================================
+
     function resize() {
       const w = viewerEl.clientWidth;
       const h = viewerEl.clientHeight;
