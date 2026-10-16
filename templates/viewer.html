@@ -18,6 +18,7 @@
       flex-direction: column;
     }
 
+    /* ========== Top bar ========== */
     .topbar {
       height: 56px;
       background: #1e1e1e;
@@ -329,7 +330,7 @@
       flex-direction: column;
       flex-shrink: 0;
       overflow: hidden;
-      margin-right:300px;
+      margin-right: 300px;
     }
 
     .panel-header {
@@ -542,6 +543,19 @@
           <span class="dd-desc">Select two parts – distance calculated automatically</span>
         </button>
         <div class="dd-divider"></div>
+        <button class="dd-item" id="optHoleDiameter">
+          Hole Diameter
+          <span class="dd-desc">Click 3+ points on the hole rim</span>
+        </button>
+        <button class="dd-item" id="optSurfaceToHole">
+          Surface → Hole Center
+          <span class="dd-desc">Click flat face, then 3 points on hole rim</span>
+        </button>
+        <button class="dd-item" id="optHoleToHole">
+          Hole → Hole Center
+          <span class="dd-desc">3 points on hole A, then 3 on hole B</span>
+        </button>
+        <div class="dd-divider"></div>
         <button class="dd-item" id="optClear">
           Clear Measurements
         </button>
@@ -618,6 +632,10 @@
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
+    // ============================================================
+    // Units: assume GLB is in meters → display in millimetres
+    // (Change UNIT_TO_MM to 1 if your files are already in mm)
+    // ============================================================
     const UNIT_TO_MM = 1000;
 
     function toMM(v) {
@@ -632,8 +650,9 @@
       return toMM(v).toFixed(digits);
     }
 
+    // ============================================================
     // DOM
-
+    // ============================================================
     const fileInput   = document.getElementById('fileInput');
     const btnChoose   = document.getElementById('btnChoose');
     const btnRender   = document.getElementById('btnRender');
@@ -657,6 +676,9 @@
     const toolsDropdown = document.getElementById('toolsDropdown');
     const optManual   = document.getElementById('optManual');
     const optAuto     = document.getElementById('optAuto');
+    const optHoleDiameter = document.getElementById('optHoleDiameter');
+    const optSurfaceToHole = document.getElementById('optSurfaceToHole');
+    const optHoleToHole = document.getElementById('optHoleToHole');
     const optClear    = document.getElementById('optClear');
     const optOff      = document.getElementById('optOff');
     const measureHint = document.getElementById('measureHint');
@@ -668,8 +690,9 @@
 
     let selectedFile = null;
 
+    // ============================================================
     // Three.js
-  
+    // ============================================================
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x2a2a2a);
 
@@ -710,8 +733,9 @@
     ground.receiveShadow = true;
     scene.add(ground);
 
+    // ============================================================
     // State
-
+    // ============================================================
     const loader = new GLTFLoader();
     let currentRoot = null;
     let entries = [];
@@ -725,12 +749,21 @@
     const AUTO_A_EMISSIVE = new THREE.Color(0x3b82f6);
     const AUTO_B_EMISSIVE = new THREE.Color(0xf97316);
 
-    // Measure modes: null | 'manual' | 'auto'
+    // Measure modes: null | 'manual' | 'auto' | 'hole_diameter' | 'surface_to_hole' | 'hole_to_hole'
     let measureMode = null;
     let measurePoints = [];
     let measurements = [];
     let autoPartA = -1;
     let autoPartB = -1;
+
+    // Hole tool state
+    let holePoints = [];           // rim points being collected
+    let holePhase = 0;             // multi-step tools
+    let surfacePlane = null;       // { point, normal } for surface→hole
+    let holeCenterA = null;        // first hole center for hole→hole
+    const HOLE_COLOR = 0xa78bfa;
+    const HOLE_LINE_MAT = new THREE.LineBasicMaterial({ color: 0xa78bfa, depthWrite: false });
+    const PLANE_COLOR = 0x22d3ee;
 
     const measureGroup = new THREE.Group();
     scene.add(measureGroup);
@@ -739,8 +772,9 @@
     const LINE_MAT  = new THREE.LineBasicMaterial({ color: 0xfbbf24, depthWrite: false });
     const AUTO_LINE_MAT = new THREE.LineBasicMaterial({ color: 0x34d399, depthWrite: false });
 
+    // ============================================================
     // Helpers
-
+    // ============================================================
     function setStatus(text) {
       statusEl.textContent = text;
     }
@@ -771,7 +805,7 @@
     }
 
     function formatSizeMM(size) {
-      return 'X =' + fmtMMRaw(size.x) + '  ×  Y =' + fmtMMRaw(size.y) + '  ×  Z =' + fmtMMRaw(size.z) + ' mm';
+      return 'X = ' + fmtMMRaw(size.x) + '  ×  Y =  ' + fmtMMRaw(size.y) + '  ×  Z = ' + fmtMMRaw(size.z) + ' mm';
     }
 
     function getVertexCount(mesh) {
@@ -808,8 +842,9 @@
       return raycaster.intersectObjects(getVisibleMeshes(), false);
     }
 
+    // ============================================================
     // Tools dropdown
-
+    // ============================================================
     btnTools.addEventListener('click', (e) => {
       e.stopPropagation();
       const open = toolsDropdown.classList.toggle('open');
@@ -826,34 +861,54 @@
     function updateDropdownActive() {
       optManual.classList.toggle('active', measureMode === 'manual');
       optAuto.classList.toggle('active', measureMode === 'auto');
+      optHoleDiameter.classList.toggle('active', measureMode === 'hole_diameter');
+      optSurfaceToHole.classList.toggle('active', measureMode === 'surface_to_hole');
+      optHoleToHole.classList.toggle('active', measureMode === 'hole_to_hole');
+    }
+
+    function closeToolsMenu() {
+      toolsDropdown.classList.remove('open');
+      btnTools.classList.remove('open');
     }
 
     optManual.addEventListener('click', () => {
       setMeasureMode('manual');
-      toolsDropdown.classList.remove('open');
-      btnTools.classList.remove('open');
+      closeToolsMenu();
     });
 
     optAuto.addEventListener('click', () => {
       setMeasureMode('auto');
-      toolsDropdown.classList.remove('open');
-      btnTools.classList.remove('open');
+      closeToolsMenu();
+    });
+
+    optHoleDiameter.addEventListener('click', () => {
+      setMeasureMode('hole_diameter');
+      closeToolsMenu();
+    });
+
+    optSurfaceToHole.addEventListener('click', () => {
+      setMeasureMode('surface_to_hole');
+      closeToolsMenu();
+    });
+
+    optHoleToHole.addEventListener('click', () => {
+      setMeasureMode('hole_to_hole');
+      closeToolsMenu();
     });
 
     optClear.addEventListener('click', () => {
       clearAllMeasurements();
-      toolsDropdown.classList.remove('open');
-      btnTools.classList.remove('open');
+      closeToolsMenu();
     });
 
     optOff.addEventListener('click', () => {
       setMeasureMode(null);
-      toolsDropdown.classList.remove('open');
-      btnTools.classList.remove('open');
+      closeToolsMenu();
     });
 
+    // ============================================================
     // Smart zoom toward mouse
-
+    // ============================================================
     function onWheel(event) {
       event.preventDefault();
       updateMouse(event);
@@ -888,8 +943,9 @@
 
     renderer.domElement.addEventListener('wheel', onWheel, { passive: false });
 
+    // ============================================================
     // Collect meshes + side panel
-
+    // ============================================================
     function collectMeshes(root) {
       entries = [];
       root.traverse(obj => {
@@ -991,8 +1047,9 @@
     btnShowAll.addEventListener('click', () => setAllVisibility(true));
     btnHideAll.addEventListener('click', () => setAllVisibility(false));
 
+    // ============================================================
     // Selection
-
+    // ============================================================
     function selectEntry(index) {
       if (selectedIndex >= 0 && entries[selectedIndex]) {
         if (selectedIndex !== autoPartA && selectedIndex !== autoPartB) {
@@ -1035,11 +1092,13 @@
       if (selectedIndex >= 0) toggleVisibility(selectedIndex);
     });
 
+    // ============================================================
     // Hover
-
+    // ============================================================
     function onPointerMove(event) {
       if (!currentRoot || entries.length === 0) return;
-      if (measureMode === 'manual') return;
+      if (measureMode === 'manual' || measureMode === 'hole_diameter' ||
+          measureMode === 'surface_to_hole' || measureMode === 'hole_to_hole') return;
 
       updateMouse(event);
       const intersects = raycastMeshes();
@@ -1078,8 +1137,150 @@
       viewerEl.classList.remove('hovering');
     }
 
-    // Measure modes
+    // ============================================================
+    // Hole geometry helpers (circle fit on mesh points)
+    // ============================================================
+    function fitPlaneFromPoints(pts) {
+      // Newell's method for plane normal + centroid
+      const n = pts.length;
+      if (n < 3) return null;
+      const c = new THREE.Vector3();
+      pts.forEach(p => c.add(p));
+      c.divideScalar(n);
 
+      let nx = 0, ny = 0, nz = 0;
+      for (let i = 0; i < n; i++) {
+        const cur = pts[i];
+        const nxt = pts[(i + 1) % n];
+        nx += (cur.y - nxt.y) * (cur.z + nxt.z);
+        ny += (cur.z - nxt.z) * (cur.x + nxt.x);
+        nz += (cur.x - nxt.x) * (cur.y + nxt.y);
+      }
+      const normal = new THREE.Vector3(nx, ny, nz);
+      if (normal.lengthSq() < 1e-20) {
+        // fallback: cross of first edges
+        const e1 = pts[1].clone().sub(pts[0]);
+        const e2 = pts[2].clone().sub(pts[0]);
+        normal.crossVectors(e1, e2);
+      }
+      if (normal.lengthSq() < 1e-20) return null;
+      normal.normalize();
+      return { point: c, normal };
+    }
+
+    function buildPlaneBasis(normal) {
+      const n = normal.clone().normalize();
+      let tmp = Math.abs(n.x) < 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+      const u = new THREE.Vector3().crossVectors(n, tmp).normalize();
+      const v = new THREE.Vector3().crossVectors(n, u).normalize();
+      return { u, v, n };
+    }
+
+    function fitCircle3D(pts) {
+      // Fit plane, project to 2D, algebraic circle fit (or exact for 3 pts)
+      if (pts.length < 3) return null;
+      const plane = fitPlaneFromPoints(pts);
+      if (!plane) return null;
+      const { u, v, n } = buildPlaneBasis(plane.normal);
+      const origin = plane.point;
+
+      const xy = pts.map(p => {
+        const d = p.clone().sub(origin);
+        return { x: d.dot(u), y: d.dot(v), p };
+      });
+
+      let cx, cy, r;
+      if (pts.length === 3) {
+        // Exact circumcircle in 2D
+        const [a, b, c] = xy;
+        const d = 2 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
+        if (Math.abs(d) < 1e-14) return null;
+        cx = ((a.x * a.x + a.y * a.y) * (b.y - c.y) +
+              (b.x * b.x + b.y * b.y) * (c.y - a.y) +
+              (c.x * c.x + c.y * c.y) * (a.y - b.y)) / d;
+        cy = ((a.x * a.x + a.y * a.y) * (c.x - b.x) +
+              (b.x * b.x + b.y * b.y) * (a.x - c.x) +
+              (c.x * c.x + c.y * c.y) * (b.x - a.x)) / d;
+        r = Math.hypot(a.x - cx, a.y - cy);
+      } else {
+        // Algebraic fit: x^2 + y^2 + D x + E y + F = 0
+        let sxx = 0, syy = 0, sxy = 0, sx = 0, sy = 0, sx3 = 0, sy3 = 0, sxy2 = 0, syx2 = 0, n = xy.length;
+        xy.forEach(({ x, y }) => {
+          const x2 = x * x, y2 = y * y;
+          sx += x; sy += y;
+          sxx += x2; syy += y2; sxy += x * y;
+          sx3 += x2 * x; sy3 += y2 * y;
+          sxy2 += x * y2; syx2 += y * x2;
+        });
+        // Solve 2x2 for D, E from partial derivatives of sum (x^2+y^2+Dx+Ey+F)^2
+        // Using Kasa method simplified
+        const mx = sx / n, my = sy / n;
+        let suu = 0, svv = 0, suv = 0, suuu = 0, svvv = 0, suvv = 0, svuu = 0;
+        xy.forEach(({ x, y }) => {
+          const u = x - mx, v = y - my;
+          const uu = u * u, vv = v * v;
+          suu += uu; svv += vv; suv += u * v;
+          suuu += uu * u; svvv += vv * v;
+          suvv += u * vv; svuu += v * uu;
+        });
+        const det = suu * svv - suv * suv;
+        if (Math.abs(det) < 1e-14) return null;
+        const uc = (svv * (suuu + suvv) - suv * (svvv + svuu)) / (2 * det);
+        const vc = (suu * (svvv + svuu) - suv * (suuu + suvv)) / (2 * det);
+        cx = uc + mx;
+        cy = vc + my;
+        r = Math.sqrt(uc * uc + vc * vc + (suu + svv) / n);
+      }
+
+      if (!isFinite(r) || r < 1e-12) return null;
+
+      const center = origin.clone()
+        .add(u.clone().multiplyScalar(cx))
+        .add(v.clone().multiplyScalar(cy));
+
+      return {
+        center,
+        radius: r,
+        diameter: r * 2,
+        normal: n.clone(),
+        planePoint: origin.clone()
+      };
+    }
+
+    function addHoleCircleVisual(fit, color = HOLE_COLOR) {
+      const segs = 64;
+      const { u, v } = buildPlaneBasis(fit.normal);
+      const positions = [];
+      for (let i = 0; i <= segs; i++) {
+        const a = (i / segs) * Math.PI * 2;
+        const p = fit.center.clone()
+          .add(u.clone().multiplyScalar(Math.cos(a) * fit.radius))
+          .add(v.clone().multiplyScalar(Math.sin(a) * fit.radius));
+        positions.push(p.x, p.y, p.z);
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      const line = new THREE.Line(
+        geo,
+        new THREE.LineBasicMaterial({ color, depthWrite: false })
+      );
+      line.renderOrder = 998;
+      measureGroup.add(line);
+      const marker = addPointMarker(fit.center, false, color);
+      return { line, marker };
+    }
+
+    function resetHoleToolState() {
+      holePoints = [];
+      holePhase = 0;
+      surfacePlane = null;
+      holeCenterA = null;
+      clearPendingPoint();
+    }
+
+    // ============================================================
+    // Measure modes
+    // ============================================================
     function setMeasureMode(mode) {
       // clean previous mode highlights
       if (autoPartA >= 0 && entries[autoPartA]) clearEmissive(entries[autoPartA].mesh);
@@ -1087,11 +1288,13 @@
       autoPartA = -1;
       autoPartB = -1;
       measurePoints = [];
-      clearPendingPoint();
+      resetHoleToolState();
 
       measureMode = mode;
       updateDropdownActive();
-      viewerEl.classList.toggle('measure-mode', mode === 'manual');
+      const isPointPick = mode === 'manual' || mode === 'hole_diameter' ||
+        mode === 'surface_to_hole' || mode === 'hole_to_hole';
+      viewerEl.classList.toggle('measure-mode', isPointPick);
 
       if (mode === 'manual') {
         measureHint.textContent = 'Manual: click first point on the model';
@@ -1102,6 +1305,20 @@
         measureHint.classList.add('visible');
         setStatus('Auto measure – select two parts');
         buildNodeList();
+      } else if (mode === 'hole_diameter') {
+        measureHint.textContent = 'Hole diameter: click 3+ points on the hole rim';
+        measureHint.classList.add('visible');
+        setStatus('Hole diameter – pick points on rim (min 3)');
+      } else if (mode === 'surface_to_hole') {
+        measureHint.textContent = 'Surface → hole: click a point on a flat face';
+        measureHint.classList.add('visible');
+        setStatus('Surface → hole – click flat surface first');
+        holePhase = 0;
+      } else if (mode === 'hole_to_hole') {
+        measureHint.textContent = 'Hole → hole: click 3 points on first hole rim';
+        measureHint.classList.add('visible');
+        setStatus('Hole → hole – pick 3 points on hole A');
+        holePhase = 0;
       } else {
         measureHint.classList.remove('visible');
         setStatus('Measure mode off');
@@ -1272,6 +1489,7 @@
       if (autoPartB >= 0 && entries[autoPartB]) clearEmissive(entries[autoPartB].mesh);
       autoPartA = -1;
       autoPartB = -1;
+      resetHoleToolState();
 
       if (measureMode === 'manual') {
         measureHint.textContent = 'Manual: click first point on the model';
@@ -1280,6 +1498,17 @@
         measureHint.textContent = 'Auto: select first part (list or 3D view)';
         measureHint.classList.add('visible');
         buildNodeList();
+      } else if (measureMode === 'hole_diameter') {
+        measureHint.textContent = 'Hole diameter: click 3+ points on the hole rim';
+        measureHint.classList.add('visible');
+      } else if (measureMode === 'surface_to_hole') {
+        measureHint.textContent = 'Surface → hole: click a point on a flat face';
+        measureHint.classList.add('visible');
+        holePhase = 0;
+      } else if (measureMode === 'hole_to_hole') {
+        measureHint.textContent = 'Hole → hole: click 3 points on first hole rim';
+        measureHint.classList.add('visible');
+        holePhase = 0;
       }
       setStatus('Measurements cleared');
     }
@@ -1309,13 +1538,240 @@
       }
     }
 
-    // Click handler
+    function showHoleDiameterResult(fit) {
+      const vis = addHoleCircleVisual(fit, HOLE_COLOR);
+      measurements.push({ type: 'hole_diameter', fit, line: vis.line, marker: vis.marker });
 
+      measureHudTitle.textContent = 'Hole Diameter';
+      measureDist.textContent = fmtMM(fit.diameter);
+      measureDeltas.innerHTML =
+        'Diameter  ' + fmtMM(fit.diameter) + '<br>' +
+        'Radius    ' + fmtMM(fit.radius) + '<br>' +
+        'Points used: ' + holePoints.length;
+      measureHud.classList.add('visible');
+      setStatus('Hole Ø ' + fmtMM(fit.diameter));
+    }
+
+    function onHoleDiameterClick(event) {
+      if (!currentRoot) return;
+      updateMouse(event);
+      const intersects = raycastMeshes();
+      if (intersects.length === 0) {
+        setStatus('Click on the hole rim');
+        return;
+      }
+      const point = intersects[0].point.clone();
+      holePoints.push(point);
+      addPointMarker(point, true, HOLE_COLOR);
+
+      if (holePoints.length < 3) {
+        measureHint.textContent = 'Hole diameter: ' + holePoints.length + '/3 points – keep clicking rim';
+        setStatus('Rim points: ' + holePoints.length + ' / 3 minimum');
+        return;
+      }
+
+      const fit = fitCircle3D(holePoints);
+      if (!fit) {
+        setStatus('Could not fit circle – try points more spread on the rim');
+        return;
+      }
+
+      clearPendingPoint();
+      holePoints.forEach(p => addPointMarker(p, false, HOLE_COLOR));
+      showHoleDiameterResult(fit);
+      measureHint.textContent = 'Hole diameter: add more rim points to refine, or Clear for a new hole';
+    }
+
+    function onSurfaceToHoleClick(event) {
+      if (!currentRoot) return;
+      updateMouse(event);
+      const intersects = raycastMeshes();
+      if (intersects.length === 0) {
+        setStatus('Click on the model');
+        return;
+      }
+      const hit = intersects[0];
+      const point = hit.point.clone();
+
+      if (holePhase === 0) {
+        let normal = hit.face ? hit.face.normal.clone() : new THREE.Vector3(0, 1, 0);
+        const normalMatrix = new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld);
+        normal.applyMatrix3(normalMatrix).normalize();
+        surfacePlane = { point: point.clone(), normal };
+        addPointMarker(point, false, PLANE_COLOR);
+        const nEnd = point.clone().add(normal.clone().multiplyScalar(getMarkerSize() * 8));
+        const pos = new Float32Array([point.x, point.y, point.z, nEnd.x, nEnd.y, nEnd.z]);
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        const nLine = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: PLANE_COLOR, depthWrite: false }));
+        nLine.renderOrder = 998;
+        measureGroup.add(nLine);
+        measurements.push({ type: 'surface_plane', line: nLine });
+
+        holePhase = 1;
+        holePoints = [];
+        measureHint.textContent = 'Surface set – click 3 points on the hole rim';
+        setStatus('Flat surface captured – pick hole rim (3 points)');
+        return;
+      }
+
+      holePoints.push(point);
+      addPointMarker(point, true, HOLE_COLOR);
+
+      if (holePoints.length < 3) {
+        measureHint.textContent = 'Surface → hole: rim ' + holePoints.length + '/3';
+        setStatus('Rim points: ' + holePoints.length + ' / 3');
+        return;
+      }
+
+      const fit = fitCircle3D(holePoints);
+      if (!fit) {
+        setStatus('Could not fit hole circle – adjust rim points');
+        return;
+      }
+
+      clearPendingPoint();
+      holePoints.forEach(p => addPointMarker(p, false, HOLE_COLOR));
+      const vis = addHoleCircleVisual(fit, HOLE_COLOR);
+
+      const d = fit.center.clone().sub(surfacePlane.point).dot(surfacePlane.normal);
+      const dist = Math.abs(d);
+
+      const onPlane = fit.center.clone().sub(surfacePlane.normal.clone().multiplyScalar(d));
+      const positions = new Float32Array([
+        onPlane.x, onPlane.y, onPlane.z,
+        fit.center.x, fit.center.y, fit.center.z
+      ]);
+      const lineGeo = new THREE.BufferGeometry();
+      lineGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      const distLine = new THREE.Line(
+        lineGeo,
+        new THREE.LineBasicMaterial({ color: 0xfbbf24, depthWrite: false })
+      );
+      distLine.renderOrder = 998;
+      measureGroup.add(distLine);
+      addPointMarker(fit.center, false, HOLE_COLOR);
+
+      measurements.push({ type: 'surface_to_hole', fit, dist, line: vis.line, distLine });
+
+      measureHudTitle.textContent = 'Surface → Hole Center';
+      measureDist.textContent = fmtMM(dist);
+      measureDeltas.innerHTML =
+        'Distance (plane → center)  ' + fmtMM(dist) + '<br>' +
+        'Hole diameter  ' + fmtMM(fit.diameter) + '<br>' +
+        'Hole radius    ' + fmtMM(fit.radius);
+      measureHud.classList.add('visible');
+      setStatus('Surface → hole: ' + fmtMM(dist));
+
+      holePhase = 0;
+      holePoints = [];
+      surfacePlane = null;
+      measureHint.textContent = 'Done – click a flat face to measure another (or Clear)';
+    }
+
+    function onHoleToHoleClick(event) {
+      if (!currentRoot) return;
+      updateMouse(event);
+      const intersects = raycastMeshes();
+      if (intersects.length === 0) {
+        setStatus('Click on a hole rim');
+        return;
+      }
+      const point = intersects[0].point.clone();
+      holePoints.push(point);
+      addPointMarker(point, true, holePhase === 0 ? 0x3b82f6 : 0xf97316);
+
+      const need = 3;
+      const label = holePhase === 0 ? 'Hole A' : 'Hole B';
+
+      if (holePoints.length < need) {
+        measureHint.textContent = label + ': ' + holePoints.length + '/' + need + ' rim points';
+        setStatus(label + ' rim points: ' + holePoints.length + ' / ' + need);
+        return;
+      }
+
+      const fit = fitCircle3D(holePoints);
+      if (!fit) {
+        setStatus('Could not fit circle on ' + label + ' – try again');
+        holePoints = [];
+        clearPendingPoint();
+        return;
+      }
+
+      clearPendingPoint();
+      const col = holePhase === 0 ? 0x3b82f6 : 0xf97316;
+      holePoints.forEach(p => addPointMarker(p, false, col));
+      addHoleCircleVisual(fit, col);
+
+      if (holePhase === 0) {
+        holeCenterA = fit.center.clone();
+        measurements.push({ type: 'hole_a', fit });
+        holePhase = 1;
+        holePoints = [];
+        measureHint.textContent = 'Hole A set – click 3 points on second hole rim';
+        setStatus('Hole A Ø ' + fmtMM(fit.diameter) + ' – pick hole B');
+        return;
+      }
+
+      const c1 = holeCenterA;
+      const c2 = fit.center;
+      const dist = c1.distanceTo(c2);
+      const dx = c2.x - c1.x;
+      const dy = c2.y - c1.y;
+      const dz = c2.z - c1.z;
+
+      const positions = new Float32Array([c1.x, c1.y, c1.z, c2.x, c2.y, c2.z]);
+      const lineGeo = new THREE.BufferGeometry();
+      lineGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      const line = new THREE.Line(
+        lineGeo,
+        new THREE.LineBasicMaterial({ color: 0x34d399, depthWrite: false })
+      );
+      line.renderOrder = 998;
+      measureGroup.add(line);
+
+      measurements.push({ type: 'hole_to_hole', c1: c1.clone(), c2: c2.clone(), line, dist });
+
+      measureHudTitle.textContent = 'Hole Center → Hole Center';
+      measureDist.textContent = fmtMM(dist);
+      measureDeltas.innerHTML =
+        'Center distance  ' + fmtMM(dist) + '<br>' +
+        'ΔX  ' + fmtMM(dx) + '<br>' +
+        'ΔY  ' + fmtMM(dy) + '<br>' +
+        'ΔZ  ' + fmtMM(dz) + '<br>' +
+        'Hole B diameter  ' + fmtMM(fit.diameter);
+      measureHud.classList.add('visible');
+      setStatus('Hole → hole: ' + fmtMM(dist));
+
+      holePhase = 0;
+      holePoints = [];
+      holeCenterA = null;
+      measureHint.textContent = 'Done – click 3 points on a hole to start again (or Clear)';
+    }
+
+    // ============================================================
+    // Click handler
+    // ============================================================
     function onPointerClick(event) {
       if (!currentRoot || entries.length === 0) return;
 
       if (measureMode === 'manual') {
         onManualClick(event);
+        return;
+      }
+
+      if (measureMode === 'hole_diameter') {
+        onHoleDiameterClick(event);
+        return;
+      }
+
+      if (measureMode === 'surface_to_hole') {
+        onSurfaceToHoleClick(event);
+        return;
+      }
+
+      if (measureMode === 'hole_to_hole') {
+        onHoleToHoleClick(event);
         return;
       }
 
@@ -1343,8 +1799,9 @@
     renderer.domElement.addEventListener('pointerleave', onPointerLeave);
     renderer.domElement.addEventListener('click', onPointerClick);
 
+    // ============================================================
     // Fit camera
-
+    // ============================================================
     function fitCameraToObject(root) {
       const box = new THREE.Box3().setFromObject(root);
       if (box.isEmpty()) return;
@@ -1367,8 +1824,9 @@
       controls.update();
     }
 
+    // ============================================================
     // Load model
-
+    // ============================================================
     function loadModel(url) {
       if (currentRoot) {
         scene.remove(currentRoot);
@@ -1427,8 +1885,9 @@
       );
     }
 
+    // ============================================================
     // Upload
-
+    // ============================================================
     btnChoose.addEventListener('click', () => fileInput.click());
 
     fileInput.addEventListener('change', () => {
@@ -1462,8 +1921,9 @@
       }
     });
 
+    // ============================================================
     // Resize + loop
-
+    // ============================================================
     function resize() {
       const w = viewerEl.clientWidth;
       const h = viewerEl.clientHeight;
