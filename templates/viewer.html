@@ -506,6 +506,39 @@
       gap: 8px;
     }
 
+    /* Right-click context menu */
+    .ctx-menu {
+    position: fixed;
+    z-index: 9999;
+    min-width: 180px;
+    background: #1e1e1e;
+    border: 1px solid #444;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.55);
+    padding: 4px 0;
+    display: none;
+    }
+
+    .ctx-menu.open {
+    display: block;
+    }
+
+    .ctx-menu button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 10px 14px;
+    border: none;
+    background: transparent;
+    color: #e5e7eb;
+    font-size: 13px;
+    cursor: pointer;
+    }
+
+.ctx-menu button:hover {
+  background: #2a2a2a;
+}
+
     @media (max-width: 900px) {
       .side-panel { width: 260px; }
     }
@@ -617,6 +650,11 @@
       </div>
     </div>
   </div>
+
+<div class="ctx-menu" id="ctxMenu">
+  <button type="button" id="ctxHide">Hide this part</button>
+  <button type="button" id="ctxShowOnly">Show only this part</button>
+</div>
 
   <script type="importmap">
   {
@@ -1921,6 +1959,84 @@
       renderer.render(scene, camera);
     }
     animate();
+
+    // ---------- Right-click context menu ----------
+    const ctxMenu = document.getElementById('ctxMenu');
+    const ctxHide = document.getElementById('ctxHide');
+    const ctxShowOnly = document.getElementById('ctxShowOnly');
+    let ctxIndex = -1;
+
+    function hideCtxMenu() {
+      ctxMenu.classList.remove('open');
+      ctxIndex = -1;
+    }
+
+    function showCtxMenu(clientX, clientY, index) {
+      ctxIndex = index;
+      ctxMenu.style.left = clientX + 'px';
+      ctxMenu.style.top = clientY + 'px';
+      ctxMenu.classList.add('open');
+    }
+
+    // Right-click on the 3D canvas
+    renderer.domElement.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      if (!currentRoot || entries.length === 0) return;
+
+      updateMouse(event);
+      const intersects = raycastMeshes();
+      if (intersects.length === 0) {
+        hideCtxMenu();
+        return;
+      }
+
+      const hitMesh = intersects[0].object;
+      const idx = entries.findIndex(e => e.mesh === hitMesh);
+      if (idx < 0) {
+        hideCtxMenu();
+        return;
+      }
+
+      // Also select that part
+      selectEntry(idx);
+      showCtxMenu(event.clientX, event.clientY, idx);
+    });
+
+    // Close menu on normal click / scroll
+    document.addEventListener('click', hideCtxMenu);
+    document.addEventListener('wheel', hideCtxMenu, { passive: true });
+
+    // Hide this part
+    ctxHide.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (ctxIndex >= 0) {
+        const entry = entries[ctxIndex];
+        if (entry) {
+          entry.visible = false;
+          entry.mesh.visible = false;
+          buildNodeList();
+          if (selectedIndex === ctxIndex) updateSelectedPanel();
+          setStatus('Hidden: ' + entry.name);
+        }
+      }
+      hideCtxMenu();
+    });
+
+    // Show only this part
+    ctxShowOnly.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (ctxIndex >= 0) {
+        entries.forEach((entry, i) => {
+          const show = (i === ctxIndex);
+          entry.visible = show;
+          entry.mesh.visible = show;
+        });
+        buildNodeList();
+        updateSelectedPanel();
+        setStatus('Showing only: ' + entries[ctxIndex].name);
+      }
+      hideCtxMenu();
+    });
   </script>
 </body>
 </html>
